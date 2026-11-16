@@ -295,3 +295,103 @@ ALTER TABLE ONLY public.outreaches
 
 \unrestrict BfWF97FxO8IFeK2VMnDkWNNbwX7BSN5jpdaShZxAsSbwa9c83qecCpECYHRE4Dg
 
+
+--
+-- 订阅权益、修订与批次（solo-2611）
+-- 说明：本次同样以 ORM 建初表；以下保留与实体一致的 DDL，便于审计与手工重建。
+--
+
+CREATE TABLE public.subscription_batches (
+    id integer NOT NULL,
+    name character varying(120),
+    import_key character varying(120),
+    state character varying(20),
+    submitted_by character varying(100),
+    created character varying(40),
+    verified_by character varying(100),
+    verified_at character varying(40),
+    total_rows integer,
+    accepted_rows integer,
+    duplicate_rows integer,
+    rejected_rows integer,
+    superseded_rows integer,
+    problem_rows integer,
+    rejected json,
+    entitlement_version integer,
+    version_checksum character varying(64)
+);
+
+CREATE SEQUENCE public.subscription_batches_id_seq AS integer START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE public.subscription_batches_id_seq OWNED BY public.subscription_batches.id;
+ALTER TABLE ONLY public.subscription_batches ALTER COLUMN id SET DEFAULT nextval('public.subscription_batches_id_seq'::regclass);
+ALTER TABLE ONLY public.subscription_batches ADD CONSTRAINT subscription_batches_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.subscription_batches ADD CONSTRAINT subscription_batches_import_key_key UNIQUE (import_key);
+
+CREATE TABLE public.subscription_events (
+    id integer NOT NULL,
+    batch_id integer NOT NULL,
+    line_no integer NOT NULL,
+    order_no character varying(80) NOT NULL,
+    member_code character varying(60) NOT NULL,
+    revision integer NOT NULL,
+    effective_start date NOT NULL,
+    effective_end date NOT NULL,
+    refunded_on date,
+    raw json
+);
+
+CREATE SEQUENCE public.subscription_events_id_seq AS integer START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE public.subscription_events_id_seq OWNED BY public.subscription_events.id;
+ALTER TABLE ONLY public.subscription_events ALTER COLUMN id SET DEFAULT nextval('public.subscription_events_id_seq'::regclass);
+ALTER TABLE ONLY public.subscription_events ADD CONSTRAINT subscription_events_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.subscription_events ADD CONSTRAINT uq_event_order_revision UNIQUE (order_no, revision);
+ALTER TABLE ONLY public.subscription_events ADD CONSTRAINT uq_event_batch_line UNIQUE (batch_id, line_no);
+CREATE INDEX ix_subscription_events_member ON public.subscription_events (member_code);
+CREATE INDEX ix_subscription_events_batch ON public.subscription_events (batch_id);
+ALTER TABLE ONLY public.subscription_events ADD CONSTRAINT subscription_events_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.subscription_batches(id);
+
+CREATE TABLE public.entitlement_versions (
+    id integer NOT NULL,
+    version integer NOT NULL,
+    batch_id integer,
+    created character varying(40),
+    checksum character varying(64),
+    members integer,
+    ranges integer
+);
+
+CREATE SEQUENCE public.entitlement_versions_id_seq AS integer START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE public.entitlement_versions_id_seq OWNED BY public.entitlement_versions.id;
+ALTER TABLE ONLY public.entitlement_versions ALTER COLUMN id SET DEFAULT nextval('public.entitlement_versions_id_seq'::regclass);
+ALTER TABLE ONLY public.entitlement_versions ADD CONSTRAINT entitlement_versions_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.entitlement_versions ADD CONSTRAINT entitlement_versions_version_key UNIQUE (version);
+ALTER TABLE ONLY public.entitlement_versions ADD CONSTRAINT entitlement_versions_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.subscription_batches(id);
+
+CREATE TABLE public.entitlement_snapshots (
+    id integer NOT NULL,
+    version integer NOT NULL,
+    member_code character varying(60) NOT NULL,
+    start_date date NOT NULL,
+    end_date date NOT NULL,
+    days integer NOT NULL,
+    source_orders json
+);
+
+CREATE SEQUENCE public.entitlement_snapshots_id_seq AS integer START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
+ALTER SEQUENCE public.entitlement_snapshots_id_seq OWNED BY public.entitlement_snapshots.id;
+ALTER TABLE ONLY public.entitlement_snapshots ALTER COLUMN id SET DEFAULT nextval('public.entitlement_snapshots_id_seq'::regclass);
+ALTER TABLE ONLY public.entitlement_snapshots ADD CONSTRAINT entitlement_snapshots_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.entitlement_snapshots ADD CONSTRAINT uq_snapshot_version_member_start UNIQUE (version, member_code, start_date);
+CREATE INDEX ix_entitlement_snapshots_version ON public.entitlement_snapshots (version);
+CREATE INDEX ix_snapshot_member_range ON public.entitlement_snapshots (member_code, start_date, end_date);
+
+ALTER TABLE public.segments ADD COLUMN week_start date;
+ALTER TABLE public.segments ADD COLUMN week_end date;
+ALTER TABLE public.segments ADD COLUMN entitlement_version integer;
+ALTER TABLE public.segments ADD COLUMN qualification json;
+
+ALTER TABLE public.outreaches ADD COLUMN send_date date;
+ALTER TABLE public.outreaches ADD COLUMN entitlement_version integer;
+ALTER TABLE public.outreaches ADD COLUMN entitlement_basis json;
+ALTER TABLE public.outreaches ADD COLUMN approved_by character varying(100);
+ALTER TABLE public.outreaches ADD COLUMN approved_at character varying(40);

@@ -5,6 +5,8 @@ from src.config.database import Session
 from src.models.entities import Segment
 from src.services.analysis import cluster
 r=redis.Redis.from_url(os.environ['REDIS_URL'])
+ARTIFACTS=Path(os.getenv('ARTIFACTS_DIR','/artifacts'))
+ARTIFACTS.mkdir(parents=True,exist_ok=True)
 with Session() as recovery:
  for pending in recovery.query(Segment).filter(Segment.state.in_(['queued','running'])).all():
   pending.state='queued';r.rpush('reader:segments',pending.id)
@@ -20,7 +22,7 @@ while True:
    snapshot=row.result['snapshot'];row.state='running';s.commit()
    try:
     row.result={**cluster(snapshot,row.features,row.k),'snapshot':snapshot};row.state='done'
-    Path('/artifacts/'+str(row.id)+'.json').write_text(json.dumps(row.result,ensure_ascii=False))
+    Path(ARTIFACTS/(str(row.id)+'.json')).write_text(json.dumps(row.result,ensure_ascii=False))
    except Exception as e:row.state='failed';row.error=str(e)
    s.commit()
  except Exception:logging.exception('worker');time.sleep(2)
